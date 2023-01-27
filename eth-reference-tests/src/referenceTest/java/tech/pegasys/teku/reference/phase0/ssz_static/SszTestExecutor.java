@@ -45,6 +45,7 @@ import tech.pegasys.teku.spec.schemas.SchemaDefinitions;
 import tech.pegasys.teku.spec.schemas.SchemaDefinitionsAltair;
 import tech.pegasys.teku.spec.schemas.SchemaDefinitionsBellatrix;
 import tech.pegasys.teku.spec.schemas.SchemaDefinitionsCapella;
+import tech.pegasys.teku.spec.schemas.SchemaDefinitionsEip4844;
 
 public class SszTestExecutor<T extends SszData> implements TestExecutor {
   private final SchemaProvider<T> sszType;
@@ -79,6 +80,11 @@ public class SszTestExecutor<T extends SszData> implements TestExecutor {
           .put(
               "ssz_static/HistoricalBatch",
               new SszTestExecutor<>(SchemaDefinitions::getHistoricalBatchSchema))
+          .put(
+              "ssz_static/HistoricalSummary",
+              new SszTestExecutor<>(
+                  schemas ->
+                      SchemaDefinitionsCapella.required(schemas).getHistoricalSummarySchema()))
           .put(
               "ssz_static/IndexedAttestation",
               new SszTestExecutor<>(SchemaDefinitions::getIndexedAttestationSchema))
@@ -131,6 +137,7 @@ public class SszTestExecutor<T extends SszData> implements TestExecutor {
                           .getSyncAggregatorSelectionDataSchema()))
           .put("ssz_static/LightClientBootstrap", IGNORE_TESTS)
           .put("ssz_static/LightClientFinalityUpdate", IGNORE_TESTS)
+          .put("ssz_static/LightClientHeader", IGNORE_TESTS)
           .put("ssz_static/LightClientOptimisticUpdate", IGNORE_TESTS)
           .put("ssz_static/LightClientStore", IGNORE_TESTS)
           .put("ssz_static/LightClientSnapshot", IGNORE_TESTS)
@@ -166,6 +173,18 @@ public class SszTestExecutor<T extends SszData> implements TestExecutor {
               "ssz_static/Withdrawal",
               new SszTestExecutor<>(
                   schemas -> SchemaDefinitionsCapella.required(schemas).getWithdrawalSchema()))
+
+          // EIP-4844 types
+          .put(
+              "ssz_static/BlobsSidecar",
+              new SszTestExecutor<>(
+                  schemas -> SchemaDefinitionsEip4844.required(schemas).getBlobsSidecarSchema()))
+          .put(
+              "ssz_static/SignedBeaconBlockAndBlobsSidecar",
+              new SszTestExecutor<>(
+                  schemas ->
+                      SchemaDefinitionsEip4844.required(schemas)
+                          .getSignedBeaconBlockAndBlobsSidecarSchema()))
 
           // Legacy Schemas (Not yet migrated to SchemaDefinitions)
           .put(

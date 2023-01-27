@@ -47,6 +47,7 @@ import tech.pegasys.teku.spec.generator.BlockProposalTestUtil;
 import tech.pegasys.teku.spec.logic.common.statetransition.results.BlockImportResult;
 import tech.pegasys.teku.spec.signatures.LocalSigner;
 import tech.pegasys.teku.spec.signatures.Signer;
+import tech.pegasys.teku.statetransition.blobs.BlobsSidecarManager;
 import tech.pegasys.teku.statetransition.forkchoice.ForkChoice;
 import tech.pegasys.teku.statetransition.forkchoice.MergeTransitionBlockValidator;
 import tech.pegasys.teku.statetransition.forkchoice.StubForkChoiceNotifier;
@@ -117,6 +118,7 @@ public class BeaconChainUtil {
             spec,
             new InlineEventThread(),
             storageClient,
+            BlobsSidecarManager.NOOP,
             new StubForkChoiceNotifier(),
             new MergeTransitionBlockValidator(spec, storageClient, ExecutionLayerChannel.NOOP)),
         true);
@@ -143,6 +145,7 @@ public class BeaconChainUtil {
             spec,
             new InlineEventThread(),
             storageClient,
+            BlobsSidecarManager.NOOP,
             new StubForkChoiceNotifier(),
             new MergeTransitionBlockValidator(spec, storageClient, ExecutionLayerChannel.NOOP)),
         signDeposits);
@@ -243,7 +246,6 @@ public class BeaconChainUtil {
             .onBlock(
                 block,
                 Optional.empty(),
-                Optional.empty(),
                 new ExecutionLayerChannelStub(spec, false, Optional.empty()))
             .join();
     if (!importResult.isSuccessful()) {
@@ -306,23 +308,25 @@ public class BeaconChainUtil {
         withValidProposer ? correctProposerIndex : getWrongProposerIndex(correctProposerIndex);
 
     final Signer signer = getSigner(proposerIndex);
-    return safeJoin(
-        blockCreator.createBlock(
-            signer,
-            slot,
-            preState,
-            bestBlockRoot,
-            attestations,
-            deposits,
-            Optional.empty(),
-            exits,
-            eth1Data,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            false));
+    final SignedBlockAndState block =
+        safeJoin(
+            blockCreator.createBlock(
+                signer,
+                slot,
+                preState,
+                bestBlockRoot,
+                attestations,
+                deposits,
+                Optional.empty(),
+                exits,
+                eth1Data,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                false));
+    return block;
   }
 
   public void finalizeChainAtEpoch(final UInt64 epoch) throws Exception {
@@ -386,6 +390,7 @@ public class BeaconChainUtil {
                 spec,
                 forkChoiceExecutor,
                 recentChainData,
+                BlobsSidecarManager.NOOP,
                 new StubForkChoiceNotifier(),
                 new MergeTransitionBlockValidator(
                     spec, recentChainData, ExecutionLayerChannel.NOOP));

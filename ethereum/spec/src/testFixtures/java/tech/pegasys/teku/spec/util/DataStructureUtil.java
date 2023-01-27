@@ -60,6 +60,8 @@ import tech.pegasys.teku.infrastructure.ssz.collections.SszPrimitiveList;
 import tech.pegasys.teku.infrastructure.ssz.collections.SszPrimitiveVector;
 import tech.pegasys.teku.infrastructure.ssz.collections.SszUInt64List;
 import tech.pegasys.teku.infrastructure.ssz.primitive.SszByte;
+import tech.pegasys.teku.infrastructure.ssz.primitive.SszBytes32;
+import tech.pegasys.teku.infrastructure.ssz.primitive.SszBytes4;
 import tech.pegasys.teku.infrastructure.ssz.primitive.SszUInt64;
 import tech.pegasys.teku.infrastructure.ssz.schema.SszListSchema;
 import tech.pegasys.teku.infrastructure.ssz.schema.SszVectorSchema;
@@ -92,6 +94,7 @@ import tech.pegasys.teku.spec.datastructures.blocks.blockbody.BeaconBlockBody;
 import tech.pegasys.teku.spec.datastructures.blocks.blockbody.BeaconBlockBodySchema;
 import tech.pegasys.teku.spec.datastructures.blocks.blockbody.versions.altair.SyncAggregate;
 import tech.pegasys.teku.spec.datastructures.blocks.blockbody.versions.altair.SyncAggregateSchema;
+import tech.pegasys.teku.spec.datastructures.blocks.blockbody.versions.eip4844.BeaconBlockBodyEip4844;
 import tech.pegasys.teku.spec.datastructures.blocks.blockbody.versions.eip4844.SignedBeaconBlockAndBlobsSidecar;
 import tech.pegasys.teku.spec.datastructures.builder.BuilderBid;
 import tech.pegasys.teku.spec.datastructures.builder.SignedBuilderBid;
@@ -111,7 +114,10 @@ import tech.pegasys.teku.spec.datastructures.execution.versions.eip4844.BlobsSid
 import tech.pegasys.teku.spec.datastructures.forkchoice.VoteTracker;
 import tech.pegasys.teku.spec.datastructures.lightclient.LightClientBootstrap;
 import tech.pegasys.teku.spec.datastructures.lightclient.LightClientBootstrapSchema;
+import tech.pegasys.teku.spec.datastructures.lightclient.LightClientHeaderSchema;
 import tech.pegasys.teku.spec.datastructures.lightclient.LightClientUpdate;
+import tech.pegasys.teku.spec.datastructures.lightclient.LightClientUpdateResponse;
+import tech.pegasys.teku.spec.datastructures.lightclient.LightClientUpdateResponseSchema;
 import tech.pegasys.teku.spec.datastructures.lightclient.LightClientUpdateSchema;
 import tech.pegasys.teku.spec.datastructures.networking.libp2p.rpc.EnrForkId;
 import tech.pegasys.teku.spec.datastructures.operations.AggregateAndProof;
@@ -150,6 +156,7 @@ import tech.pegasys.teku.spec.datastructures.state.beaconstate.BeaconStateSchema
 import tech.pegasys.teku.spec.datastructures.state.beaconstate.MutableBeaconState;
 import tech.pegasys.teku.spec.datastructures.state.beaconstate.versions.altair.BeaconStateSchemaAltair;
 import tech.pegasys.teku.spec.datastructures.state.beaconstate.versions.phase0.BeaconStateSchemaPhase0;
+import tech.pegasys.teku.spec.datastructures.state.versions.capella.HistoricalSummary;
 import tech.pegasys.teku.spec.datastructures.type.SszKZGCommitment;
 import tech.pegasys.teku.spec.datastructures.type.SszKZGProof;
 import tech.pegasys.teku.spec.datastructures.type.SszPublicKey;
@@ -805,6 +812,25 @@ public final class DataStructureUtil {
     return signedBlock(beaconBlock);
   }
 
+  public SignedBeaconBlock randomSignedBeaconBlockWithEmptyCommitments() {
+    final UInt64 proposerIndex = randomUInt64();
+    final UInt64 slot = randomUInt64();
+    final Bytes32 stateRoot = randomBytes32();
+    final Bytes32 parentRoot = randomBytes32();
+
+    final BeaconBlockBody body = randomBeaconBlockBodyWithEmptyCommitments();
+
+    final BeaconBlock beaconBlock =
+        new BeaconBlock(
+            spec.atSlot(slot).getSchemaDefinitions().getBeaconBlockSchema(),
+            slot,
+            proposerIndex,
+            parentRoot,
+            stateRoot,
+            body);
+    return signedBlock(beaconBlock);
+  }
+
   public SignedBeaconBlock signedBlock(final BeaconBlock block) {
     return signedBlock(block, randomSignature());
   }
@@ -995,32 +1021,39 @@ public final class DataStructureUtil {
 
     return schema
         .createBlockBody(
-            builder ->
-                builder
-                    .randaoReveal(randomSignature())
-                    .eth1Data(randomEth1Data())
-                    .graffiti(Bytes32.ZERO)
-                    .proposerSlashings(
-                        randomSszList(
-                            schema.getProposerSlashingsSchema(), this::randomProposerSlashing, 1))
-                    .attesterSlashings(
-                        randomSszList(
-                            schema.getAttesterSlashingsSchema(), this::randomAttesterSlashing, 1))
-                    .attestations(
-                        randomSszList(schema.getAttestationsSchema(), this::randomAttestation, 3))
-                    .deposits(
-                        randomSszList(
-                            schema.getDepositsSchema(), this::randomDepositWithoutIndex, 1))
-                    .voluntaryExits(
-                        randomSszList(
-                            schema.getVoluntaryExitsSchema(), this::randomSignedVoluntaryExit, 1))
-                    .syncAggregate(() -> this.randomSyncAggregateIfRequiredBySchema(schema))
-                    .executionPayloadHeader(
-                        () ->
-                            SafeFuture.completedFuture(
-                                randomExecutionPayloadHeader(spec.atSlot(slotNum))))
-                    .blsToExecutionChanges(this::randomSignedBlsToExecutionChangesList)
-                    .blobKzgCommitments(this::randomSszKzgCommitmentList))
+            builder -> {
+              builder
+                  .randaoReveal(randomSignature())
+                  .eth1Data(randomEth1Data())
+                  .graffiti(Bytes32.ZERO)
+                  .proposerSlashings(
+                      randomSszList(
+                          schema.getProposerSlashingsSchema(), this::randomProposerSlashing, 1))
+                  .attesterSlashings(
+                      randomSszList(
+                          schema.getAttesterSlashingsSchema(), this::randomAttesterSlashing, 1))
+                  .attestations(
+                      randomSszList(schema.getAttestationsSchema(), this::randomAttestation, 3))
+                  .deposits(
+                      randomSszList(schema.getDepositsSchema(), this::randomDepositWithoutIndex, 1))
+                  .voluntaryExits(
+                      randomSszList(
+                          schema.getVoluntaryExitsSchema(), this::randomSignedVoluntaryExit, 1));
+              if (builder.supportsSyncAggregate()) {
+                builder.syncAggregate(this.randomSyncAggregateIfRequiredBySchema(schema));
+              }
+              if (builder.supportsExecutionPayload()) {
+                builder.executionPayloadHeader(
+                    SafeFuture.completedFuture(randomExecutionPayloadHeader(spec.atSlot(slotNum))));
+              }
+              if (builder.supportsBlsToExecutionChanges()) {
+                builder.blsToExecutionChanges(randomSignedBlsToExecutionChangesList());
+              }
+              if (builder.supportsKzgCommitments()) {
+                builder.blobKzgCommitments(
+                    SafeFuture.completedFuture(randomSszKzgCommitmentList()));
+              }
+            })
         .join();
   }
 
@@ -1030,32 +1063,39 @@ public final class DataStructureUtil {
 
     return schema
         .createBlockBody(
-            builder ->
-                builder
-                    .randaoReveal(randomSignature())
-                    .eth1Data(randomEth1Data())
-                    .graffiti(Bytes32.ZERO)
-                    .proposerSlashings(
-                        randomSszList(
-                            schema.getProposerSlashingsSchema(), this::randomProposerSlashing, 1))
-                    .attesterSlashings(
-                        randomSszList(
-                            schema.getAttesterSlashingsSchema(), this::randomAttesterSlashing, 1))
-                    .attestations(
-                        randomSszList(schema.getAttestationsSchema(), this::randomAttestation, 3))
-                    .deposits(
-                        randomSszList(
-                            schema.getDepositsSchema(), this::randomDepositWithoutIndex, 1))
-                    .voluntaryExits(
-                        randomSszList(
-                            schema.getVoluntaryExitsSchema(), this::randomSignedVoluntaryExit, 1))
-                    .syncAggregate(() -> this.randomSyncAggregateIfRequiredBySchema(schema))
-                    .executionPayload(
-                        () ->
-                            SafeFuture.completedFuture(
-                                randomExecutionPayload(spec.atSlot(slotNum))))
-                    .blsToExecutionChanges(this::randomSignedBlsToExecutionChangesList)
-                    .blobKzgCommitments(this::randomSszKzgCommitmentList))
+            builder -> {
+              builder
+                  .randaoReveal(randomSignature())
+                  .eth1Data(randomEth1Data())
+                  .graffiti(Bytes32.ZERO)
+                  .proposerSlashings(
+                      randomSszList(
+                          schema.getProposerSlashingsSchema(), this::randomProposerSlashing, 1))
+                  .attesterSlashings(
+                      randomSszList(
+                          schema.getAttesterSlashingsSchema(), this::randomAttesterSlashing, 1))
+                  .attestations(
+                      randomSszList(schema.getAttestationsSchema(), this::randomAttestation, 3))
+                  .deposits(
+                      randomSszList(schema.getDepositsSchema(), this::randomDepositWithoutIndex, 1))
+                  .voluntaryExits(
+                      randomSszList(
+                          schema.getVoluntaryExitsSchema(), this::randomSignedVoluntaryExit, 1));
+              if (builder.supportsSyncAggregate()) {
+                builder.syncAggregate(this.randomSyncAggregateIfRequiredBySchema(schema));
+              }
+              if (builder.supportsExecutionPayload()) {
+                builder.executionPayload(
+                    SafeFuture.completedFuture(randomExecutionPayload(spec.atSlot(slotNum))));
+              }
+              if (builder.supportsBlsToExecutionChanges()) {
+                builder.blsToExecutionChanges(randomSignedBlsToExecutionChangesList());
+              }
+              if (builder.supportsKzgCommitments()) {
+                builder.blobKzgCommitments(
+                    SafeFuture.completedFuture(randomSszKzgCommitmentList()));
+              }
+            })
         .join();
   }
 
@@ -1064,6 +1104,47 @@ public final class DataStructureUtil {
         spec.getGenesisSpec().getSchemaDefinitions().getBeaconBlockBodySchema();
     return schema
         .createBlockBody(
+            builder -> {
+              builder
+                  .randaoReveal(randomSignature())
+                  .eth1Data(randomEth1Data())
+                  .graffiti(Bytes32.ZERO)
+                  .proposerSlashings(
+                      randomSszList(
+                          schema.getProposerSlashingsSchema(), this::randomProposerSlashing, 1))
+                  .attesterSlashings(
+                      randomSszList(
+                          schema.getAttesterSlashingsSchema(), this::randomAttesterSlashing, 1))
+                  .attestations(
+                      randomSszList(schema.getAttestationsSchema(), this::randomAttestation, 3))
+                  .deposits(
+                      randomSszList(schema.getDepositsSchema(), this::randomDepositWithoutIndex, 1))
+                  .voluntaryExits(
+                      randomSszList(
+                          schema.getVoluntaryExitsSchema(), this::randomSignedVoluntaryExit, 1));
+              if (builder.supportsSyncAggregate()) {
+                builder.syncAggregate(this.randomSyncAggregateIfRequiredBySchema(schema));
+              }
+              if (builder.supportsExecutionPayload()) {
+                builder.executionPayload(
+                    SafeFuture.completedFuture(randomExecutionPayload(spec.getGenesisSpec())));
+              }
+              if (builder.supportsBlsToExecutionChanges()) {
+                builder.blsToExecutionChanges(randomSignedBlsToExecutionChangesList());
+              }
+              if (builder.supportsKzgCommitments()) {
+                builder.blobKzgCommitments(
+                    SafeFuture.completedFuture(randomSszKzgCommitmentList()));
+              }
+            })
+        .join();
+  }
+
+  public BeaconBlockBody randomBeaconBlockBodyWithEmptyCommitments() {
+    BeaconBlockBodySchema<?> schema =
+        spec.getGenesisSpec().getSchemaDefinitions().getBeaconBlockBodySchema();
+    return schema
+        .createBlockBody(
             builder ->
                 builder
                     .randaoReveal(randomSignature())
@@ -1083,13 +1164,12 @@ public final class DataStructureUtil {
                     .voluntaryExits(
                         randomSszList(
                             schema.getVoluntaryExitsSchema(), this::randomSignedVoluntaryExit, 1))
-                    .syncAggregate(() -> this.randomSyncAggregateIfRequiredBySchema(schema))
+                    .syncAggregate(this.randomSyncAggregateIfRequiredBySchema(schema))
                     .executionPayload(
-                        () ->
-                            SafeFuture.completedFuture(
-                                randomExecutionPayload(spec.getGenesisSpec())))
-                    .blsToExecutionChanges(this::randomSignedBlsToExecutionChangesList)
-                    .blobKzgCommitments(this::randomSszKzgCommitmentList))
+                        SafeFuture.completedFuture(randomExecutionPayload(spec.getGenesisSpec())))
+                    .blsToExecutionChanges(this.randomSignedBlsToExecutionChangesList())
+                    .blobKzgCommitments(
+                        SafeFuture.completedFuture(this.emptySszKzgCommitmentList())))
         .join();
   }
 
@@ -1098,32 +1178,40 @@ public final class DataStructureUtil {
         spec.getGenesisSpec().getSchemaDefinitions().getBeaconBlockBodySchema();
     return schema
         .createBlockBody(
-            builder ->
-                builder
-                    .randaoReveal(randomSignature())
-                    .eth1Data(randomEth1Data())
-                    .graffiti(Bytes32.ZERO)
-                    .proposerSlashings(
-                        randomFullSszList(
-                            schema.getProposerSlashingsSchema(), this::randomProposerSlashing))
-                    .attesterSlashings(
-                        randomFullSszList(
-                            schema.getAttesterSlashingsSchema(), this::randomAttesterSlashing))
-                    .attestations(
-                        randomFullSszList(schema.getAttestationsSchema(), this::randomAttestation))
-                    .deposits(
-                        randomFullSszList(
-                            schema.getDepositsSchema(), this::randomDepositWithoutIndex))
-                    .voluntaryExits(
-                        randomFullSszList(
-                            schema.getVoluntaryExitsSchema(), this::randomSignedVoluntaryExit))
-                    .syncAggregate(() -> randomSyncAggregateIfRequiredBySchema(schema))
-                    .executionPayload(
-                        () ->
-                            SafeFuture.completedFuture(
-                                randomExecutionPayload(spec.getGenesisSpec())))
-                    .blsToExecutionChanges(this::randomSignedBlsToExecutionChangesList)
-                    .blobKzgCommitments(this::randomSszKzgCommitmentList))
+            builder -> {
+              builder
+                  .randaoReveal(randomSignature())
+                  .eth1Data(randomEth1Data())
+                  .graffiti(Bytes32.ZERO)
+                  .proposerSlashings(
+                      randomFullSszList(
+                          schema.getProposerSlashingsSchema(), this::randomProposerSlashing))
+                  .attesterSlashings(
+                      randomFullSszList(
+                          schema.getAttesterSlashingsSchema(), this::randomAttesterSlashing))
+                  .attestations(
+                      randomFullSszList(schema.getAttestationsSchema(), this::randomAttestation))
+                  .deposits(
+                      randomFullSszList(
+                          schema.getDepositsSchema(), this::randomDepositWithoutIndex))
+                  .voluntaryExits(
+                      randomFullSszList(
+                          schema.getVoluntaryExitsSchema(), this::randomSignedVoluntaryExit));
+              if (builder.supportsSyncAggregate()) {
+                builder.syncAggregate(randomSyncAggregateIfRequiredBySchema(schema));
+              }
+              if (builder.supportsExecutionPayload()) {
+                builder.executionPayload(
+                    SafeFuture.completedFuture(randomExecutionPayload(spec.getGenesisSpec())));
+              }
+              if (builder.supportsBlsToExecutionChanges()) {
+                builder.blsToExecutionChanges(randomSignedBlsToExecutionChangesList());
+              }
+              if (builder.supportsKzgCommitments()) {
+                builder.blobKzgCommitments(
+                    SafeFuture.completedFuture(randomSszKzgCommitmentList()));
+              }
+            })
         .join();
   }
 
@@ -1380,7 +1468,8 @@ public final class DataStructureUtil {
         withValidatorRegistration
             ? Optional.of(randomSignedValidatorRegistration())
             : Optional.empty(),
-        randomWithdrawalList());
+        randomWithdrawalList(),
+        randomUInt64());
   }
 
   public BeaconPreparableProposer randomBeaconPreparableProposer() {
@@ -1636,32 +1725,51 @@ public final class DataStructureUtil {
   }
 
   public LightClientBootstrap randomLightClientBoostrap(final UInt64 slot) {
-    LightClientBootstrapSchema schema =
+    LightClientBootstrapSchema bootstrapSchema =
         getAltairSchemaDefinitions(slot).getLightClientBootstrapSchema();
+    LightClientHeaderSchema headerSchema =
+        getAltairSchemaDefinitions(slot).getLightClientHeaderSchema();
 
-    return schema.create(
-        randomBeaconBlockHeader(),
+    return bootstrapSchema.create(
+        headerSchema.create(randomBeaconBlockHeader()),
         randomSyncCommittee(),
-        randomSszBytes32Vector(schema.getSyncCommitteeBranchSchema(), this::randomBytes32));
+        randomSszBytes32Vector(
+            bootstrapSchema.getSyncCommitteeBranchSchema(), this::randomBytes32));
   }
 
   public LightClientUpdate randomLightClientUpdate(final UInt64 slot) {
     LightClientUpdateSchema schema = getAltairSchemaDefinitions(slot).getLightClientUpdateSchema();
+    LightClientHeaderSchema headerSchema =
+        getAltairSchemaDefinitions(slot).getLightClientHeaderSchema();
 
     return schema.create(
-        randomBeaconBlockHeader(),
+        headerSchema.create(randomBeaconBlockHeader()),
         randomSyncCommittee(),
         randomSszBytes32Vector(schema.getSyncCommitteeBranchSchema(), this::randomBytes32),
-        randomBeaconBlockHeader(),
+        headerSchema.create(randomBeaconBlockHeader()),
         randomSszBytes32Vector(schema.getFinalityBranchSchema(), this::randomBytes32),
         randomSyncAggregate(),
         SszUInt64.of(randomUInt64()));
+  }
+
+  public LightClientUpdateResponse randomLightClientUpdateResponse(final UInt64 slot) {
+    LightClientUpdateResponseSchema schema =
+        getAltairSchemaDefinitions(slot).getLightClientUpdateResponseSchema();
+
+    return schema.create(
+        SszUInt64.of(randomUInt64()), SszBytes4.of(randomBytes4()), randomLightClientUpdate(slot));
   }
 
   public Withdrawal randomWithdrawal() {
     return SchemaDefinitionsCapella.required(spec.getGenesisSchemaDefinitions())
         .getWithdrawalSchema()
         .create(randomUInt64(), randomValidatorIndex(), randomBytes20(), randomUInt64());
+  }
+
+  public HistoricalSummary randomHistoricalSummary() {
+    return SchemaDefinitionsCapella.required(spec.getGenesisSchemaDefinitions())
+        .getHistoricalSummarySchema()
+        .create(SszBytes32.of(randomBytes32()), SszBytes32.of(randomBytes32()));
   }
 
   public Optional<List<Withdrawal>> randomWithdrawalList() {
@@ -1745,8 +1853,21 @@ public final class DataStructureUtil {
     return randomBlob().getBytes();
   }
 
+  public BlobsSidecar randomBlobsSidecarForBlock(final SignedBeaconBlock block) {
+    return randomBlobsSidecar(
+        block.getRoot(),
+        block.getSlot(),
+        BeaconBlockBodyEip4844.required(block.getBeaconBlock().orElseThrow().getBody())
+            .getBlobKzgCommitments()
+            .size());
+  }
+
   public BlobsSidecar randomBlobsSidecar() {
     return randomBlobsSidecar(randomBytes32(), randomUInt64());
+  }
+
+  public BlobsSidecar randomBlobsSidecar(final UInt64 slot) {
+    return randomBlobsSidecar(randomBytes32(), slot);
   }
 
   public BlobsSidecar randomBlobsSidecar(final Bytes32 blockRoot, final UInt64 slot) {
@@ -1754,10 +1875,20 @@ public final class DataStructureUtil {
         SchemaDefinitionsEip4844.required(spec.getGenesisSchemaDefinitions())
             .getBlobsSidecarSchema();
 
+    return randomBlobsSidecar(
+        blockRoot, slot, randomInt((int) blobsSidecarSchema.getBlobsSchema().getMaxLength()));
+  }
+
+  public BlobsSidecar randomBlobsSidecar(
+      final Bytes32 blockRoot, final UInt64 slot, final int numberOfBlobs) {
+    final BlobsSidecarSchema blobsSidecarSchema =
+        SchemaDefinitionsEip4844.required(spec.getGenesisSchemaDefinitions())
+            .getBlobsSidecarSchema();
+
     return blobsSidecarSchema.create(
         blockRoot,
         slot,
-        IntStream.range(0, randomInt((int) blobsSidecarSchema.getBlobsSchema().getMaxLength()))
+        IntStream.range(0, numberOfBlobs)
             .mapToObj(__ -> randomBytes(blobsSidecarSchema.getBlobSchema().getLength()))
             .collect(toList()),
         randomBytes48());
@@ -1766,13 +1897,14 @@ public final class DataStructureUtil {
   public BlobsBundle randomBlobsBundle() {
     final BlobSchema blobSchema =
         SchemaDefinitionsEip4844.required(spec.getGenesisSchemaDefinitions()).getBlobSchema();
-
-    return new BlobsBundle(
-        randomBytes32(),
+    List<KZGCommitment> kzgs =
         randomSszKzgCommitmentList().stream()
             .map(SszKZGCommitment::getKZGCommitment)
-            .collect(toList()),
-        IntStream.range(0, randomInt((int) blobSchema.getMaxLength()))
+            .collect(toList());
+    return new BlobsBundle(
+        randomBytes32(),
+        kzgs,
+        IntStream.range(0, kzgs.size())
             .mapToObj(__ -> new Blob(blobSchema, randomBytes(blobSchema.getLength())))
             .collect(toList()));
   }
@@ -1783,6 +1915,26 @@ public final class DataStructureUtil {
         .create(randomSignedBeaconBlock(), randomBlobsSidecar());
   }
 
+  public SignedBeaconBlockAndBlobsSidecar randomConsistentSignedBeaconBlockAndBlobsSidecar() {
+    return randomConsistentSignedBeaconBlockAndBlobsSidecar(randomUInt64());
+  }
+
+  public SignedBeaconBlockAndBlobsSidecar randomConsistentSignedBeaconBlockAndBlobsSidecar(
+      final UInt64 slot) {
+    final SignedBeaconBlock randomBlock = randomSignedBeaconBlock(slot);
+    return SchemaDefinitionsEip4844.required(spec.getGenesisSchemaDefinitions())
+        .getSignedBeaconBlockAndBlobsSidecarSchema()
+        .create(
+            randomBlock,
+            randomBlobsSidecar(
+                randomBlock.getRoot(),
+                randomBlock.getSlot(),
+                BeaconBlockBodyEip4844.required(
+                        randomBlock.getBeaconBlock().orElseThrow().getBody())
+                    .getBlobKzgCommitments()
+                    .size()));
+  }
+
   public SszList<SszKZGCommitment> randomSszKzgCommitmentList() {
     final SszListSchema<SszKZGCommitment, ?> kzgCommitmentsSchema =
         SchemaDefinitionsEip4844.required(spec.getGenesisSchemaDefinitions())
@@ -1790,10 +1942,11 @@ public final class DataStructureUtil {
             .toVersionEip4844()
             .orElseThrow()
             .getBlobKzgCommitmentsSchema();
-    final long maxKzgCommitments =
+    final int maxKzgCommitments =
         spec.getGenesisSpecConfig().toVersionEip4844().orElseThrow().getMaxBlobsPerBlock();
 
-    return randomSszList(kzgCommitmentsSchema, maxKzgCommitments, this::randomSszKZGCommitment);
+    return randomSszList(
+        kzgCommitmentsSchema, randomInt(maxKzgCommitments) + 1, this::randomSszKZGCommitment);
   }
 
   public SszList<SszKZGCommitment> emptySszKzgCommitmentList() {
